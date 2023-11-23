@@ -1,0 +1,5 @@
+A4Gen
+libscio.a
+*.o
+*.interp
+*.tokens
