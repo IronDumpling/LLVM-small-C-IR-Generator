@@ -169,6 +169,7 @@ void
 IRGen::visitFunctionDeclNode (FunctionDeclNode* func) {
     func->getRetType()->visit(this);
     func->getIdent()->visit(this);
+
     for (auto i: func->getParams())
         i->visit(this);
 
@@ -200,8 +201,8 @@ IRGen::visitFunctionDeclNode (FunctionDeclNode* func) {
         llvm::Value * alloca = this->Builder->CreateAlloca(T, nullptr, name);
         this->Builder->CreateStore(arg, alloca); // store the argument value to a pointer
 
-        this->findTable(param->getIdent())->setLLVMValue(name, alloca);
-
+        func->getBody()->getVarTable()->setLLVMValue(name, alloca);
+        
         cout << "declare parameter " << name << "\n";
     }
 
@@ -213,14 +214,14 @@ IRGen::visitFunctionDeclNode (FunctionDeclNode* func) {
     cout << "finish visiting scope of " << name << "\n";
 
     assert(this->Builder->GetInsertBlock() != nullptr);
+
     llvm::Instruction * lastInst = this->Builder->GetInsertBlock()->getTerminator();
     if(func->getRetType()->getTypeEnum() == TypeNode::Void && 
     (!lastInst || !llvm::isa<llvm::ReturnInst>(lastInst))){
         this->Builder->CreateRetVoid();
         cout << "add the missing return void\n";
     }
-        
-
+    
     ASTVisitorBase::visitFunctionDeclNode(func);
 }
 
@@ -232,14 +233,13 @@ IRGen::visitArrayDeclNode (ArrayDeclNode* array) {
     int size = array->getType()->getSize();
     string name = array->getIdent()->getName();
     llvm::Type * type = this->convertType(array->getType());
-    llvm::ArrayType * array_type = llvm::ArrayType::get(type, size);
     
-    assert(array_type != nullptr);
+    assert(type != nullptr);
 
     // 1. global variable
     if(array->isGlobal()){
         llvm::GlobalVariable * var = new llvm::GlobalVariable(
-            *(this->TheModule), array_type, false, 
+            *(this->TheModule), type, false, 
             llvm::GlobalValue::ExternalLinkage, nullptr, name
         );
         this->findTable(array->getIdent())->setLLVMValue(name, var);
@@ -247,7 +247,7 @@ IRGen::visitArrayDeclNode (ArrayDeclNode* array) {
     // 2. local variable
     else{
         llvm::Value * var = this->Builder->CreateAlloca(
-            array_type, nullptr, name
+            type, nullptr, name
         );
         this->findTable(array->getIdent())->setLLVMValue(name, var);
         cout << "local array: " << name << "\n";
@@ -342,6 +342,7 @@ IRGen::visitCallExprNode (CallExprNode* call) {
         // 2. expression arguments
             // 2.1 array
             // 2.2 scalar
+
     ASTVisitorBase::visitCallExprNode(call);
 }
 
@@ -375,18 +376,19 @@ IRGen::visitReferenceExprNode(ReferenceExprNode* ref) {
     auto table = this->findTable(ref->getIdent());
     
     assert(table != nullptr);
+
     VariableEntry val_entry = table->get(ref->getIdent()->getName());
     TypeNode * type = val_entry.getType();
     llvm::Value * val = val_entry.getValue();
 
+    assert(type != nullptr);
+    assert(val != nullptr);
+
     // 1. scalar
     if(!type->isArray()){
         llvm::Type * value_type = this->convertType(type);
-        cout << "scalar value type\n";
-        // llvm::LoadInst * loadInst = this->Builder->CreateLoad(
-            // value_type, val, ref->getIdent()->getName()
-        // );
-        cout << "scalar load instruction\n";
+        llvm::LoadInst * loadInst = this->Builder->CreateLoad(value_type, val);
+        ref->setLLVMValue(loadInst);
     } else {
         // 2. array without index
 
