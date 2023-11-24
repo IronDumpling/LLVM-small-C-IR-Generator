@@ -84,9 +84,9 @@ int main(int argc, const char *argv[]) {
     tokens.fill();
 
     // Uncomment these lines to see the tokens printed out
-    cout << "Tokens:" << endl;
-    for (Token *token : tokens.getTokens()) 
-        std::cout << token->toString() << std::endl;
+    // cout << "Tokens:" << endl;
+    // for (Token *token : tokens.getTokens()) 
+        // std::cout << token->toString() << std::endl;
 
     // Create a parser 
     smallCParser* parser = new smallCParser(&tokens);

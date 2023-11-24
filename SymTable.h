@@ -58,7 +58,7 @@ class FunctionEntry {
 public:
     PrimitiveTypeNode* returnType;
     std::vector<TypeNode*> parameterTypes;
-    llvm::Value* value; // Not used here but simplifies table
+    llvm::Value* value; 
     bool proto;
 public:
     FunctionEntry();

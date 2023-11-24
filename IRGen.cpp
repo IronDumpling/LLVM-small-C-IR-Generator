@@ -87,7 +87,7 @@ IRGen::arrayToPrimitiveType(TypeNode * array){
 }
 
 void
-IRGen::createFuncProto(string name, FunctionEntry func){
+IRGen::createFuncProto(string name, FunctionEntry & func){
     // try to get function from module
     llvm::Function * F = this->TheModule->getFunction(name);
     // 1. exists
@@ -107,10 +107,12 @@ IRGen::createFuncProto(string name, FunctionEntry func){
         
     // function signature
     llvm::FunctionType * func_type = llvm::FunctionType::get(ret_type, param_types, false);
-    F = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, name, *(this->TheModule));
+    F = llvm::Function::Create(
+        func_type, llvm::Function::ExternalLinkage, name, *(this->TheModule)
+    );
 
     assert(F != nullptr);
-
+    
     // add zeroext attribute to bool parameters
     llvm::Argument * arg;
     for(unsigned int i = 0; i < F->arg_size(); i++){
@@ -122,18 +124,6 @@ IRGen::createFuncProto(string name, FunctionEntry func){
 }
 
 /* ECE467 STUDENT: complete the implementation of the visitor functions */
-
-// TerminatorInst: Terminator of the basic block
-// TerminatorInst has successor basic blocks
-    // Subclass 1: ReturnInst
-    // It doesn't have successor Basic Blocks, because the fuction is done
-    // Subclass 2: BranchInst
-    // None conditional BranchInsts have one successor BasicBlock. 
-    // Always jump to the other block
-    // Conditional BranchInsts have two successor BasicBlock. 
-    // The BranchInst have one argument: a codition. 
-    // True to go to the first successor. False to go to the second.
-// Generate the BB flow diagram by: opt -dot-cfg bitcode.bc
 
 void
 IRGen::visitASTNode (ASTNode* node) {
@@ -150,7 +140,10 @@ IRGen::visitProgramNode(ProgramNode* prg) {
     // used to insert global symbols into module in ArrayDecl and ScalarDecl
     this->Builder = std::make_unique<llvm::IRBuilder<>>(*(this->TheContext));
 
-    auto funcs = *(prg->getFuncTable()->getTable());
+    this->prog = prg;
+    assert(this->prog != nullptr);
+
+    auto funcs = *(this->prog->getFuncTable()->getTable());
     for(auto pair : funcs){
         string name = pair.first;
         auto func = pair.second;
@@ -202,8 +195,6 @@ IRGen::visitFunctionDeclNode (FunctionDeclNode* func) {
         this->Builder->CreateStore(arg, alloca); // store the argument value to a pointer
 
         func->getBody()->getVarTable()->setLLVMValue(name, alloca);
-        
-        cout << "declare parameter " << name << "\n";
     }
 
     cout << "finish declare parameters of " << name << "\n"; 
@@ -219,7 +210,6 @@ IRGen::visitFunctionDeclNode (FunctionDeclNode* func) {
     if(func->getRetType()->getTypeEnum() == TypeNode::Void && 
     (!lastInst || !llvm::isa<llvm::ReturnInst>(lastInst))){
         this->Builder->CreateRetVoid();
-        cout << "add the missing return void\n";
     }
     
     ASTVisitorBase::visitFunctionDeclNode(func);
@@ -295,9 +285,15 @@ void
 IRGen::visitUnaryExprNode(UnaryExprNode* unary) {
     unary->getOperand()->visit(this);
 
-    // create the expression based on the operation
-    // the right-hand side operands
-    // ps: no need to perform short-circuiting for boolean expr
+    string op = ExprNode::codeToStr(unary->getOpcode());
+    llvm::Value * left = unary->getOperand()->getLLVMValue();
+    llvm::Value * operation;
+
+    if(op == "!"){
+        this->Builder->CreateICmpEQ(left, this->Builder->getInt1(0));
+    }else if(op == "-"){
+        this->Builder->CreateNeg(left);
+    }
 
     ASTVisitorBase::visitUnaryExprNode(unary);
 }
@@ -307,9 +303,41 @@ IRGen::visitBinaryExprNode(BinaryExprNode* bin) {
     bin->getLeft()->visit(this);
     bin->getRight()->visit(this);
 
-    // create the expression based on the operation
-    // the left-hand / right-hand side operands
-    // ps: no need to perform short-circuiting for boolean expr
+    string op = ExprNode::codeToStr(bin->getOpcode());
+    llvm::Value * left = bin->getLeft()->getLLVMValue();
+    llvm::Value * right = bin->getRight()->getLLVMValue();
+    llvm::Value * operation;
+
+    // 1. Arithmetic Operations
+    if(op == "+"){
+        this->Builder->CreateAdd(left, right);
+    }else if (op == "-"){
+        this->Builder->CreateSub(left, right);
+    }else if (op == "*"){
+        this->Builder->CreateMul(left, right);
+    }else if (op == "/"){
+        this->Builder->CreateSDiv(left, right);
+    }
+    // 2. Comparison Operations
+    else if (op == "&&"){
+        this->Builder->CreateAnd(left, right);
+    }else if (op == "||"){
+        this->Builder->CreateOr(left, right);
+    }else if (op == "=="){
+        this->Builder->CreateICmpEQ(left, right);
+    }else if (op == "!="){
+        this->Builder->CreateICmpNE(left, right);
+    }else if (op == "<"){
+        this->Builder->CreateICmpSLT(left, right);
+    }else if (op == "<="){
+        this->Builder->CreateICmpSLE(left, right);
+    }else if (op == ">"){
+        this->Builder->CreateICmpSGT(left, right);
+    }else if (op == ">="){
+        this->Builder->CreateICmpSGE(left, right);
+    }
+
+    bin->setLLVMValue(operation);
 
     ASTVisitorBase::visitBinaryExprNode(bin);
 }
@@ -330,20 +358,44 @@ IRGen::visitBoolExprNode (BoolExprNode* boolExpr) {
 
 void
 IRGen::visitCallExprNode (CallExprNode* call) {
+    
     call->getIdent()->visit(this);
-    for (auto i: call->getArguments())
-        i->visit(this);
 
-    // create the call instruction using CreateCall
-    // make sure the arguments are in a vector
-        // 1. reference arguments
-            // 1.1 array
-            // 1.2 scalar
-        // 2. expression arguments
-            // 2.1 array
-            // 2.2 scalar
+    string name = call->getIdent()->getName();
+    
+    llvm::Function * func = this->TheModule->getFunction(name);
+    assert(func != nullptr);
+    FunctionType * type = func->getFunctionType();
+    assert(type != nullptr);
+
+    std::vector<llvm::Value*> arg_values;
+    for (ArgumentNode * arg: call->getArguments()){
+        arg->visit(this);
+        arg_values.push_back(arg->getExpr()->getLLVMValue());
+    }
+
+    CallInst * callInst = this->Builder->CreateCall(
+        type, func, arg_values
+    );
+
+    call->setLLVMValue(callInst);
+
+    cout << "function call " << name << "\n";
 
     ASTVisitorBase::visitCallExprNode(call);
+}
+
+void 
+IRGen::visitArgumentNode(ArgumentNode* arg) {
+    arg->getExpr()->visit(this);
+    ASTVisitorBase::visitArgumentNode(arg);
+}
+
+void
+IRGen::visitParameterNode(ParameterNode* param) {
+    param->getType()->visit(this);
+    param->getIdent()->visit(this);
+    ASTVisitorBase::visitParameterNode(param);
 }
 
 void 
@@ -398,7 +450,15 @@ IRGen::visitReferenceExprNode(ReferenceExprNode* ref) {
             llvm::Value * gepInst = this->Builder->CreateGEP(
                 this->arrayToPrimitiveType(type), loadInst, indicies
             );
-            ref->setLLVMValue(gepInst);
+            
+            // if(this->isValueExpr){
+                loadInst = this->Builder->CreateLoad(
+                    this->arrayToPrimitiveType(type), gepInst
+                ); 
+                ref->setLLVMValue(loadInst);
+            // }else{
+                // ref->setLLVMValue(gepInst);
+            // }
         }
         // 3. array has size with index
         else if(ref->getIndex() && !value_type->isPointerTy()){
@@ -408,12 +468,16 @@ IRGen::visitReferenceExprNode(ReferenceExprNode* ref) {
                 llvm::ConstantInt::get(llvm::Type::getInt32Ty(*TheContext), 0),
                 ref->getIndex()->getLLVMValue()
             };
-
             llvm::Value * gepInst = this->Builder->CreateGEP(value_type, val, indicies);
-            llvm::LoadInst * loadInst = this->Builder->CreateLoad(
-                this->arrayToPrimitiveType(type), gepInst
-            );
-            ref->setLLVMValue(loadInst);
+            
+            // if(this->isValueExpr){
+                llvm::LoadInst * loadInst = this->Builder->CreateLoad(
+                    this->arrayToPrimitiveType(type), gepInst
+                ); 
+                ref->setLLVMValue(loadInst);
+            // }else{
+                // ref->setLLVMValue(gepInst);
+            // }
         } 
         // 4. array no size without index
         else if(!ref->getIndex() && value_type->isPointerTy()){
@@ -442,25 +506,15 @@ IRGen::visitIdentifierNode(IdentifierNode* id) {
 }
 
 void 
-IRGen::visitArgumentNode(ArgumentNode* arg) {
-    ASTVisitorBase::visitArgumentNode(arg);
-}
-
-void
-IRGen::visitParameterNode(ParameterNode* param) {
-    ASTVisitorBase::visitParameterNode(param);
-    param->getType()->visit(this);
-    param->getIdent()->visit(this);
-}
-
-void 
 IRGen::visitStmtNode(StmtNode* stmt) {
     ASTVisitorBase::visitStmtNode(stmt);
 }
 
 void 
 IRGen::visitAssignStmtNode(AssignStmtNode* assign) {
+    this->isValueExpr = true;
     assign->getValue()->visit(this);
+    this->isValueExpr = false;
     assign->getTarget()->visit(this);
 
     // create a store (write to memory) for the target of the assignment using CreateStore
@@ -475,9 +529,44 @@ IRGen::visitAssignStmtNode(AssignStmtNode* assign) {
 void 
 IRGen::visitExprStmtNode(ExprStmtNode* expr) {
     expr->getExpr()->visit(this);
-
     ASTVisitorBase::visitExprStmtNode(expr);
 }
+
+void 
+IRGen::visitReturnStmtNode(ReturnStmtNode* ret) {
+    if(ret->returnVoid()){
+        this->Builder->CreateRetVoid();
+        cout << "return void\n";
+    }else{
+        ExprNode * expr = ret->getReturn();
+        expr->visit(this);
+        llvm::Type * type = this->convertType(expr->getType());
+        llvm::ReturnInst* retInst = nullptr;
+        if (type->isIntegerTy(32)) {
+            retInst = this->Builder->CreateRet(expr->getLLVMValue());
+            cout << "return int\n";
+        } else if (type->isIntegerTy(1)) {
+            // TODO: Is this neccessary?
+            llvm::Type* int32Type = llvm::Type::getInt32Ty(*(this->TheContext));
+            llvm::Value* int32Value = this->Builder->CreateZExtOrTrunc(expr->getLLVMValue(), int32Type);
+            retInst = this->Builder->CreateRet(int32Value);
+            cout << "return bool\n";
+        }
+    }
+    ASTVisitorBase::visitReturnStmtNode(ret);
+}
+
+// TerminatorInst: Terminator of the basic block
+// TerminatorInst has successor basic blocks
+    // Subclass 1: ReturnInst
+    // It doesn't have successor Basic Blocks, because the fuction is done
+    // Subclass 2: BranchInst
+    // None conditional BranchInsts have one successor BasicBlock. 
+    // Always jump to the other block
+    // Conditional BranchInsts have two successor BasicBlock. 
+    // The BranchInst have one argument: a codition. 
+    // True to go to the first successor. False to go to the second.
+// Generate the BB flow diagram by: opt -dot-cfg bitcode.bc
 
 void 
 IRGen::visitIfStmtNode(IfStmtNode* ifStmt) {
@@ -500,37 +589,6 @@ IRGen::visitIfStmtNode(IfStmtNode* ifStmt) {
 }
 
 void 
-IRGen::visitReturnStmtNode(ReturnStmtNode* ret) {
-    if(ret->returnVoid()){
-        this->Builder->CreateRetVoid();
-        cout << "return void\n";
-    }else{
-        ExprNode * expr = ret->getReturn();
-        expr->visit(this);
-        llvm::Type * type = this->convertType(expr->getType());
-        llvm::ReturnInst* retInst = nullptr;
-        if (type->isIntegerTy(32)) {
-            retInst = this->Builder->CreateRet(expr->getLLVMValue());
-            cout << "return int\n";
-        } else if (type->isIntegerTy(1)) {
-            llvm::Type* int32Type = llvm::Type::getInt32Ty(*(this->TheContext));
-            llvm::Value* int32Value = this->Builder->CreateZExtOrTrunc(expr->getLLVMValue(), int32Type);
-            retInst = this->Builder->CreateRet(int32Value);
-            cout << "return bool\n";
-        }
-    }
-    ASTVisitorBase::visitReturnStmtNode(ret);
-}
-
-void 
-IRGen::visitScopeNode(ScopeNode* scope) {
-    for (auto i: scope->getDeclarations())
-        i->visit(this);
-
-    ASTVisitorBase::visitScopeNode(scope);
-}
-
-void 
 IRGen::visitWhileStmtNode(WhileStmtNode* whileStmt) {
     whileStmt->getCondition()->visit(this);
     whileStmt->getBody()->visit(this);
@@ -546,6 +604,14 @@ IRGen::visitWhileStmtNode(WhileStmtNode* whileStmt) {
     // add basic block for its exit
 
     ASTVisitorBase::visitWhileStmtNode(whileStmt);
+}
+
+void 
+IRGen::visitScopeNode(ScopeNode* scope) {
+    for (auto i: scope->getDeclarations())
+        i->visit(this);
+
+    ASTVisitorBase::visitScopeNode(scope);
 }
 
 void 
