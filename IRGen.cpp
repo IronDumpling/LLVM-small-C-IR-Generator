@@ -80,10 +80,10 @@ IRGen::findTable(IdentifierNode* id){
 
 /* Helper Functions */
 
-// variable is array or not
-bool
-IRGen::varIsArray(){
-
+llvm::Type * 
+IRGen::arrayToPrimitiveType(TypeNode * array){
+    PrimitiveTypeNode * primitive = new PrimitiveTypeNode(array->getTypeEnum());
+    return this->convertType(primitive);
 }
 
 void
@@ -317,14 +317,14 @@ IRGen::visitBinaryExprNode(BinaryExprNode* bin) {
 void
 IRGen::visitIntExprNode(IntExprNode* intExpr) {
     intExpr->getValue()->visit(this);
-
+    intExpr->setLLVMValue(intExpr->getValue()->getLLVMValue());
     ASTVisitorBase::visitIntExprNode(intExpr);
 }
 
 void 
 IRGen::visitBoolExprNode (BoolExprNode* boolExpr) {
     boolExpr->getValue()->visit(this);
-
+    boolExpr->setLLVMValue(boolExpr->getValue()->getLLVMValue());
     ASTVisitorBase::visitBoolExprNode(boolExpr);
 }
 
@@ -348,8 +348,6 @@ IRGen::visitCallExprNode (CallExprNode* call) {
 
 void 
 IRGen::visitConstantExprNode(ConstantExprNode* constant) {
-    // create the constant using the appropriate llvm::Constant get method
-    // insert into the expr
    ASTVisitorBase::visitConstantExprNode(constant);
 }
 
@@ -369,9 +367,7 @@ IRGen::visitIntConstantNode(IntConstantNode* intConst) {
 
 void
 IRGen::visitReferenceExprNode(ReferenceExprNode* ref) {
-    ref->getIdent()->visit(this);
-    if (ref->getIndex())
-        ref->getIndex()->visit(this);
+    ref->getIdent()->visit(this);        
 
     auto table = this->findTable(ref->getIdent());
     
@@ -379,6 +375,7 @@ IRGen::visitReferenceExprNode(ReferenceExprNode* ref) {
 
     VariableEntry val_entry = table->get(ref->getIdent()->getName());
     TypeNode * type = val_entry.getType();
+    llvm::Type * value_type = this->convertType(type);
     llvm::Value * val = val_entry.getValue();
 
     assert(type != nullptr);
@@ -386,16 +383,54 @@ IRGen::visitReferenceExprNode(ReferenceExprNode* ref) {
 
     // 1. scalar
     if(!type->isArray()){
-        llvm::Type * value_type = this->convertType(type);
         llvm::LoadInst * loadInst = this->Builder->CreateLoad(value_type, val);
         ref->setLLVMValue(loadInst);
     } else {
-        // 2. array without index
+        // 2. array no size with index
+        if(ref->getIndex() && value_type->isPointerTy()){
+            ref->getIndex()->visit(this);
+            // %0 = load ptr, ptr %a2
+            llvm::LoadInst * loadInst = this->Builder->CreateLoad(value_type, val);
+            // %1 = getelementptr i32/i1, ptr %0, i32/i1 idx
+            llvm::ArrayRef<llvm::Value *> indicies = {
+                ref->getIndex()->getLLVMValue()
+            };
+            llvm::Value * gepInst = this->Builder->CreateGEP(
+                this->arrayToPrimitiveType(type), loadInst, indicies
+            );
+            ref->setLLVMValue(gepInst);
+        }
+        // 3. array has size with index
+        else if(ref->getIndex() && !value_type->isPointerTy()){
+            ref->getIndex()->visit(this);
+            
+            llvm::ArrayRef<llvm::Value *> indicies = {
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*TheContext), 0),
+                ref->getIndex()->getLLVMValue()
+            };
 
-        // 3. array with index
-        
-        // 4. pointer
-        // Use the GEP instruction
+            llvm::Value * gepInst = this->Builder->CreateGEP(value_type, val, indicies);
+            llvm::LoadInst * loadInst = this->Builder->CreateLoad(
+                this->arrayToPrimitiveType(type), gepInst
+            );
+            ref->setLLVMValue(loadInst);
+        } 
+        // 4. array no size without index
+        else if(!ref->getIndex() && value_type->isPointerTy()){
+            // %0 = load ptr, ptr %a2, align 8
+            llvm::LoadInst * loadInst = this->Builder->CreateLoad(value_type, val);
+            ref->setLLVMValue(loadInst);
+        }
+        // 5. array has size without index
+        else if(!ref->getIndex() && !value_type->isPointerTy()) {
+            // %0 = getelementptr [size * i32/i1], ptr %d, i32/i1 0, i32/i1 0
+            llvm::ArrayRef<llvm::Value *> indicies = {
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*TheContext), 0),
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*TheContext), 0)
+            };
+            llvm::Value * gepInst = this->Builder->CreateGEP(value_type, val, indicies);
+            ref->setLLVMValue(gepInst);
+        }
     }
 
     ASTVisitorBase::visitReferenceExprNode(ref);
@@ -425,8 +460,8 @@ IRGen::visitStmtNode(StmtNode* stmt) {
 
 void 
 IRGen::visitAssignStmtNode(AssignStmtNode* assign) {
-    assign->getTarget()->visit(this);
     assign->getValue()->visit(this);
+    assign->getTarget()->visit(this);
 
     // create a store (write to memory) for the target of the assignment using CreateStore
     // 1. scalar

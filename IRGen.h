@@ -44,7 +44,7 @@ public:
     llvm::Type* convertType(TypeNode* type);
     SymTable<VariableEntry>* findTable(IdentifierNode* id);
 
-    bool varIsArray();
+    llvm::Type * arrayToPrimitiveType(TypeNode * array);
     void createFuncProto(string name, FunctionEntry func);
 
     // The IR Generation visitors

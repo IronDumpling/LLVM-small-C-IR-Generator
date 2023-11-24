@@ -13,7 +13,11 @@ entry:
   store ptr %b, ptr %b2, align 8
   %c = alloca i32, align 4
   %0 = load i32, ptr %c, align 4
-  %1 = load i1, ptr %a1, align 1
+  %1 = load i32, ptr %c, align 4
+  %2 = load i32, ptr %c, align 4
+  %3 = load i1, ptr %a1, align 1
+  %4 = load ptr, ptr %b2, align 8
+  %5 = getelementptr i32, ptr %4, i32 1
   ret void
 }
 
@@ -22,6 +26,19 @@ entry:
   %b = alloca i1, align 1
   %d = alloca [10 x i32], align 4
   %0 = load i32, ptr @q, align 4
+  %1 = getelementptr [10 x i32], ptr %d, i32 0, i32 3
+  %2 = load i32, ptr %1, align 4
+  %3 = load i32, ptr @q, align 4
+  %4 = getelementptr [10 x i32], ptr %d, i32 0, i32 3
+  %5 = load i32, ptr %4, align 4
+  %6 = load i32, ptr @q, align 4
+  %7 = getelementptr [10 x i32], ptr %d, i32 0, i32 %6
+  %8 = load i32, ptr %7, align 4
+  %9 = load i32, ptr @q, align 4
+  %10 = getelementptr [10 x i32], ptr %d, i32 0, i32 3
+  %11 = load i32, ptr %10, align 4
+  %12 = getelementptr [10 x i32], ptr %d, i32 0, i32 %11
+  %13 = load i32, ptr %12, align 4
   ret void
 }
 
