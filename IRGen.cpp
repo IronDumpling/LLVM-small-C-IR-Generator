@@ -176,7 +176,9 @@ IRGen::visitFunctionDeclNode (FunctionDeclNode* func) {
     if(func->getProto()) return;
 
     // 2. function declaration
-    llvm::BasicBlock * entry = llvm::BasicBlock::Create(*(this->TheContext), "entry", F, 0);
+    llvm::BasicBlock * entry = llvm::BasicBlock::Create(
+        *(this->TheContext), "entry", F
+    );
     this->Builder->SetInsertPoint(entry);
 
     cout << "declare fuction " << name << "\n";
@@ -197,12 +199,12 @@ IRGen::visitFunctionDeclNode (FunctionDeclNode* func) {
         func->getBody()->getVarTable()->setLLVMValue(name, alloca);
     }
 
-    cout << "finish declare parameters of " << name << "\n"; 
+    this->currFunctionName = name;
 
     if (func->getBody())
         func->getBody()->visit(this);
 
-    cout << "finish visiting scope of " << name << "\n";
+    cout << "finish visiting the scope of " << name << "\n";
 
     assert(this->Builder->GetInsertBlock() != nullptr);
 
@@ -230,7 +232,8 @@ IRGen::visitArrayDeclNode (ArrayDeclNode* array) {
     if(array->isGlobal()){
         llvm::GlobalVariable * var = new llvm::GlobalVariable(
             *(this->TheModule), type, false, 
-            llvm::GlobalValue::ExternalLinkage, nullptr, name
+            llvm::GlobalValue::CommonLinkage, 
+            llvm::ConstantAggregateZero::get(type), name
         );
         this->findTable(array->getIdent())->setLLVMValue(name, var);
     }
@@ -240,7 +243,7 @@ IRGen::visitArrayDeclNode (ArrayDeclNode* array) {
             type, nullptr, name
         );
         this->findTable(array->getIdent())->setLLVMValue(name, var);
-        cout << "local array: " << name << "\n";
+        cout << array->getLine() << ": local array: " << name << "\n";
     }    
 
     ASTVisitorBase::visitArrayDeclNode(array);
@@ -260,7 +263,8 @@ IRGen::visitScalarDeclNode (ScalarDeclNode* scalar) {
     if(scalar->isGlobal()){
         llvm::GlobalVariable * var = new llvm::GlobalVariable(
             *(this->TheModule), type, false, 
-            llvm::GlobalValue::ExternalLinkage, nullptr, name
+            llvm::GlobalValue::CommonLinkage, 
+            llvm::ConstantInt::get(type, 0), name
         );
         this->findTable(scalar->getIdent())->setLLVMValue(name, var);
     }
@@ -270,7 +274,7 @@ IRGen::visitScalarDeclNode (ScalarDeclNode* scalar) {
             type, nullptr, name
         );
         this->findTable(scalar->getIdent())->setLLVMValue(name, var);
-        cout << "local scalar: " << name << "\n";
+        cout << scalar->getLine() << ": local scalar: " << name << "\n";
     }
     
     ASTVisitorBase::visitScalarDeclNode(scalar);
@@ -290,17 +294,21 @@ IRGen::visitUnaryExprNode(UnaryExprNode* unary) {
     llvm::Value * operation;
 
     if(op == "!"){
-        this->Builder->CreateICmpEQ(left, this->Builder->getInt1(0));
+        operation = this->Builder->CreateICmpEQ(left, this->Builder->getInt1(0));
     }else if(op == "-"){
-        this->Builder->CreateNeg(left);
+        operation = this->Builder->CreateNeg(left);
     }
+
+    unary->setLLVMValue(operation);
 
     ASTVisitorBase::visitUnaryExprNode(unary);
 }
 
 void 
 IRGen::visitBinaryExprNode(BinaryExprNode* bin) {
+    cout << bin->getLine() << ": left operand\n";
     bin->getLeft()->visit(this);
+    cout << bin->getLine() << ": right operand\n";
     bin->getRight()->visit(this);
 
     string op = ExprNode::codeToStr(bin->getOpcode());
@@ -310,31 +318,31 @@ IRGen::visitBinaryExprNode(BinaryExprNode* bin) {
 
     // 1. Arithmetic Operations
     if(op == "+"){
-        this->Builder->CreateAdd(left, right);
+        operation = this->Builder->CreateAdd(left, right);
     }else if (op == "-"){
-        this->Builder->CreateSub(left, right);
+        operation = this->Builder->CreateSub(left, right);
     }else if (op == "*"){
-        this->Builder->CreateMul(left, right);
+        operation = this->Builder->CreateMul(left, right);
     }else if (op == "/"){
-        this->Builder->CreateSDiv(left, right);
+        operation = this->Builder->CreateSDiv(left, right);
     }
     // 2. Comparison Operations
     else if (op == "&&"){
-        this->Builder->CreateAnd(left, right);
+        operation = this->Builder->CreateAnd(left, right);
     }else if (op == "||"){
-        this->Builder->CreateOr(left, right);
+        operation = this->Builder->CreateOr(left, right);
     }else if (op == "=="){
-        this->Builder->CreateICmpEQ(left, right);
+        operation = this->Builder->CreateICmpEQ(left, right);
     }else if (op == "!="){
-        this->Builder->CreateICmpNE(left, right);
+        operation = this->Builder->CreateICmpNE(left, right);
     }else if (op == "<"){
-        this->Builder->CreateICmpSLT(left, right);
+        operation = this->Builder->CreateICmpSLT(left, right);
     }else if (op == "<="){
-        this->Builder->CreateICmpSLE(left, right);
+        operation = this->Builder->CreateICmpSLE(left, right);
     }else if (op == ">"){
-        this->Builder->CreateICmpSGT(left, right);
+        operation = this->Builder->CreateICmpSGT(left, right);
     }else if (op == ">="){
-        this->Builder->CreateICmpSGE(left, right);
+        operation = this->Builder->CreateICmpSGE(left, right);
     }
 
     bin->setLLVMValue(operation);
@@ -350,7 +358,7 @@ IRGen::visitIntExprNode(IntExprNode* intExpr) {
 }
 
 void 
-IRGen::visitBoolExprNode (BoolExprNode* boolExpr) {
+IRGen::visitBoolExprNode(BoolExprNode* boolExpr) {
     boolExpr->getValue()->visit(this);
     boolExpr->setLLVMValue(boolExpr->getValue()->getLLVMValue());
     ASTVisitorBase::visitBoolExprNode(boolExpr);
@@ -380,7 +388,7 @@ IRGen::visitCallExprNode (CallExprNode* call) {
 
     call->setLLVMValue(callInst);
 
-    cout << "function call " << name << "\n";
+    cout << call->getLine() << ": function call " << name << "\n";
 
     ASTVisitorBase::visitCallExprNode(call);
 }
@@ -417,8 +425,8 @@ IRGen::visitIntConstantNode(IntConstantNode* intConst) {
     ASTVisitorBase::visitIntConstantNode(intConst);
 }
 
-void
-IRGen::visitReferenceExprNode(ReferenceExprNode* ref) {
+void 
+IRGen::createVarInst(ReferenceExprNode* ref, bool isValue){
     ref->getIdent()->visit(this);        
 
     auto table = this->findTable(ref->getIdent());
@@ -435,69 +443,78 @@ IRGen::visitReferenceExprNode(ReferenceExprNode* ref) {
 
     // 1. scalar
     if(!type->isArray()){
-        llvm::LoadInst * loadInst = this->Builder->CreateLoad(value_type, val);
-        ref->setLLVMValue(loadInst);
-    } else {
-        // 2. array no size with index
-        if(ref->getIndex() && value_type->isPointerTy()){
-            ref->getIndex()->visit(this);
-            // %0 = load ptr, ptr %a2
-            llvm::LoadInst * loadInst = this->Builder->CreateLoad(value_type, val);
-            // %1 = getelementptr i32/i1, ptr %0, i32/i1 idx
-            llvm::ArrayRef<llvm::Value *> indicies = {
-                ref->getIndex()->getLLVMValue()
-            };
-            llvm::Value * gepInst = this->Builder->CreateGEP(
-                this->arrayToPrimitiveType(type), loadInst, indicies
-            );
-            
-            // if(this->isValueExpr){
-                loadInst = this->Builder->CreateLoad(
-                    this->arrayToPrimitiveType(type), gepInst
-                ); 
-                ref->setLLVMValue(loadInst);
-            // }else{
-                // ref->setLLVMValue(gepInst);
-            // }
-        }
-        // 3. array has size with index
-        else if(ref->getIndex() && !value_type->isPointerTy()){
-            ref->getIndex()->visit(this);
-            
-            llvm::ArrayRef<llvm::Value *> indicies = {
-                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*TheContext), 0),
-                ref->getIndex()->getLLVMValue()
-            };
-            llvm::Value * gepInst = this->Builder->CreateGEP(value_type, val, indicies);
-            
-            // if(this->isValueExpr){
-                llvm::LoadInst * loadInst = this->Builder->CreateLoad(
-                    this->arrayToPrimitiveType(type), gepInst
-                ); 
-                ref->setLLVMValue(loadInst);
-            // }else{
-                // ref->setLLVMValue(gepInst);
-            // }
-        } 
-        // 4. array no size without index
-        else if(!ref->getIndex() && value_type->isPointerTy()){
-            // %0 = load ptr, ptr %a2, align 8
+        if(isValue){
             llvm::LoadInst * loadInst = this->Builder->CreateLoad(value_type, val);
             ref->setLLVMValue(loadInst);
+        }else{
+            ref->setLLVMValue(val);
         }
-        // 5. array has size without index
-        else if(!ref->getIndex() && !value_type->isPointerTy()) {
-            // %0 = getelementptr [size * i32/i1], ptr %d, i32/i1 0, i32/i1 0
-            llvm::ArrayRef<llvm::Value *> indicies = {
-                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*TheContext), 0),
-                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*TheContext), 0)
-            };
-            llvm::Value * gepInst = this->Builder->CreateGEP(value_type, val, indicies);
+    }
+    // 2. array no size with index
+    else if(ref->getIndex() && value_type->isPointerTy()){
+        ref->getIndex()->visit(this);
+
+        // %0 = load ptr, ptr %a2
+        llvm::LoadInst * loadInst = this->Builder->CreateLoad(value_type, val);
+        // %1 = getelementptr i32/i1, ptr %0, i32/i1 idx
+        llvm::ArrayRef<llvm::Value *> indicies = {
+            ref->getIndex()->getLLVMValue()
+        };
+        llvm::Value * gepInst = this->Builder->CreateGEP(
+            this->arrayToPrimitiveType(type), loadInst, indicies
+        );
+        
+        if(isValue){
+            loadInst = this->Builder->CreateLoad(
+                this->arrayToPrimitiveType(type), gepInst
+            ); 
+            ref->setLLVMValue(loadInst);
+        }else{
             ref->setLLVMValue(gepInst);
         }
     }
+    // 3. array has size with index
+    else if(ref->getIndex() && !value_type->isPointerTy()){
+        ref->getIndex()->visit(this);
+        
+        llvm::ArrayRef<llvm::Value *> indicies = {
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(*TheContext), 0),
+            ref->getIndex()->getLLVMValue()
+        };
+        llvm::Value * gepInst = this->Builder->CreateGEP(value_type, val, indicies);
+        
+        if(isValue){
+            llvm::LoadInst * loadInst = this->Builder->CreateLoad(
+                this->arrayToPrimitiveType(type), gepInst
+            ); 
+            ref->setLLVMValue(loadInst);
+        }else{
+            ref->setLLVMValue(gepInst);
+        }
+    } 
+    // 4. array no size without index
+    else if(!ref->getIndex() && value_type->isPointerTy()){
+        // %0 = load ptr, ptr %a2, align 8
+        llvm::LoadInst * loadInst = this->Builder->CreateLoad(value_type, val);
+        ref->setLLVMValue(loadInst);
+    }
+    // 5. array has size without index
+    else if(!ref->getIndex() && !value_type->isPointerTy()) {
+        // %0 = getelementptr [size * i32/i1], ptr %d, i32/i1 0, i32/i1 0
+        llvm::ArrayRef<llvm::Value *> indicies = {
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(*TheContext), 0),
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(*TheContext), 0)
+        };
+        llvm::Value * gepInst = this->Builder->CreateGEP(value_type, val, indicies);
+        ref->setLLVMValue(gepInst);
+    }
 
     ASTVisitorBase::visitReferenceExprNode(ref);
+}
+
+void
+IRGen::visitReferenceExprNode(ReferenceExprNode* ref) {
+    this->createVarInst(ref, true);
 }
 
 void 
@@ -512,16 +529,16 @@ IRGen::visitStmtNode(StmtNode* stmt) {
 
 void 
 IRGen::visitAssignStmtNode(AssignStmtNode* assign) {
-    this->isValueExpr = true;
     assign->getValue()->visit(this);
-    this->isValueExpr = false;
-    assign->getTarget()->visit(this);
+    this->createVarInst(assign->getTarget(), false);
 
-    // create a store (write to memory) for the target of the assignment using CreateStore
-    // 1. scalar
+    llvm::Value * val = assign->getValue()->getLLVMValue();
+    llvm::Value * target = assign->getTarget()->getLLVMValue();
+
+    this->Builder->CreateStore(val, target);
     
-    // 2. array
-    // Use the GEP instruction
+    // TODO: it works?    
+    // array Use the GEP instruction
 
     ASTVisitorBase::visitAssignStmtNode(assign);
 }
@@ -536,72 +553,97 @@ void
 IRGen::visitReturnStmtNode(ReturnStmtNode* ret) {
     if(ret->returnVoid()){
         this->Builder->CreateRetVoid();
-        cout << "return void\n";
     }else{
         ExprNode * expr = ret->getReturn();
         expr->visit(this);
         llvm::Type * type = this->convertType(expr->getType());
         llvm::ReturnInst* retInst = nullptr;
-        if (type->isIntegerTy(32)) {
-            retInst = this->Builder->CreateRet(expr->getLLVMValue());
-            cout << "return int\n";
-        } else if (type->isIntegerTy(1)) {
-            // TODO: Is this neccessary?
-            llvm::Type* int32Type = llvm::Type::getInt32Ty(*(this->TheContext));
-            llvm::Value* int32Value = this->Builder->CreateZExtOrTrunc(expr->getLLVMValue(), int32Type);
-            retInst = this->Builder->CreateRet(int32Value);
-            cout << "return bool\n";
-        }
+        retInst = this->Builder->CreateRet(expr->getLLVMValue());
     }
     ASTVisitorBase::visitReturnStmtNode(ret);
 }
 
-// TerminatorInst: Terminator of the basic block
-// TerminatorInst has successor basic blocks
-    // Subclass 1: ReturnInst
-    // It doesn't have successor Basic Blocks, because the fuction is done
-    // Subclass 2: BranchInst
-    // None conditional BranchInsts have one successor BasicBlock. 
-    // Always jump to the other block
-    // Conditional BranchInsts have two successor BasicBlock. 
-    // The BranchInst have one argument: a codition. 
-    // True to go to the first successor. False to go to the second.
 // Generate the BB flow diagram by: opt -dot-cfg bitcode.bc
-
 void 
 IRGen::visitIfStmtNode(IfStmtNode* ifStmt) {
-    // create the basic blocks for the condition 
-    // the then clause
-    if(ifStmt->getThen()){
+    llvm::Function * func = this->TheModule->getFunction(this->currFunctionName);
 
-    }
-    // the else clause
-    if(ifStmt->getElse()){
-
-    }
-    // add the exit block
-    ASTVisitorBase::visitIfStmtNode(ifStmt);
-
+    llvm::BasicBlock * then = llvm::BasicBlock::Create(
+        *(this->TheContext), "if.then", func
+    );
+    llvm::BasicBlock * els;
+    llvm::BasicBlock * exit = llvm::BasicBlock::Create(
+        *(this->TheContext), "if.merge", func
+    );
+    
     ifStmt->getCondition()->visit(this);
-    ifStmt->getThen()->visit(this);
-    if (ifStmt->getHasElse())
+    llvm::Value * cond = ifStmt->getCondition()->getLLVMValue();
+
+    if(ifStmt->getElse()){
+        els = llvm::BasicBlock::Create(
+            *(this->TheContext), "if.else", func
+        );
+        this->Builder->CreateCondBr(cond, then, els);
+    }else{
+        this->Builder->CreateCondBr(cond, then, exit);
+    }
+
+    // then clause
+    if(ifStmt->getThen()){
+        this->Builder->SetInsertPoint(then);
+        ifStmt->getThen()->visit(this);
+        llvm::Instruction * lastInst = this->Builder->GetInsertBlock()->getTerminator();
+        if(!lastInst || !llvm::isa<llvm::ReturnInst>(lastInst)){
+            this->Builder->CreateBr(exit);
+        }
+    }
+    // else clause
+    if(ifStmt->getElse()){
+        this->Builder->SetInsertPoint(els);
         ifStmt->getElse()->visit(this);
+        llvm::Instruction * lastInst = this->Builder->GetInsertBlock()->getTerminator();
+        if(!lastInst || !llvm::isa<llvm::ReturnInst>(lastInst)){
+            this->Builder->CreateBr(exit);
+        }
+    }
+
+    this->Builder->SetInsertPoint(exit);
+
+    ASTVisitorBase::visitIfStmtNode(ifStmt);
 }
 
 void 
 IRGen::visitWhileStmtNode(WhileStmtNode* whileStmt) {
+    llvm::Function * func = this->TheModule->getFunction(this->currFunctionName);
+
+    assert(whileStmt->getCondition() != nullptr);
+    assert(whileStmt->getBody() != nullptr);
+
+    llvm::BasicBlock * cond = llvm::BasicBlock::Create(
+        *(this->TheContext), "while.condition", func
+    );
+    llvm::BasicBlock * loop = llvm::BasicBlock::Create(
+        *(this->TheContext), "while.body", func
+    );
+    llvm::BasicBlock * exit = llvm::BasicBlock::Create(
+        *(this->TheContext), "while.exit", func
+    );
+
+    this->Builder->CreateBr(cond);
+
+    this->Builder->SetInsertPoint(cond);
     whileStmt->getCondition()->visit(this);
+    llvm::Value * condition = whileStmt->getCondition()->getLLVMValue();
+    this->Builder->CreateCondBr(condition, loop, exit);
+
+    this->Builder->SetInsertPoint(loop);
     whileStmt->getBody()->visit(this);
-
-    // create the basic blocks for the condition of the loop
-    if(whileStmt->getCondition()){
-
+    llvm::Instruction * lastInst = this->Builder->GetInsertBlock()->getTerminator();
+    if(!lastInst || !llvm::isa<llvm::ReturnInst>(lastInst)){
+        this->Builder->CreateBr(cond);
     }
-    // basic block for the body
-    if(whileStmt->getBody()){
 
-    }
-    // add basic block for its exit
+    this->Builder->SetInsertPoint(exit);
 
     ASTVisitorBase::visitWhileStmtNode(whileStmt);
 }
