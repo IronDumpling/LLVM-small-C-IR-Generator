@@ -1,4 +1,7 @@
 A4Gen
+submit_log.*
 *.o
 *.interp
 *.tokens
+testcases/*.ll
+testcases/*.bc
