@@ -34,7 +34,7 @@ private:
     std::unique_ptr<llvm::Module> TheModule;
     std::unique_ptr<llvm::IRBuilder<>> Builder;
     const std::string ModuleName;
-    bool isValueExpr = false;
+    std::string currFunctionName;
     
 public:
     // Constructor
@@ -47,6 +47,7 @@ public:
 
     llvm::Type * arrayToPrimitiveType(TypeNode * array);
     void createFuncProto(string name, FunctionEntry & func);
+    void createVarInst(ReferenceExprNode* ref, bool isValue);
 
     // The IR Generation visitors
     // These are the methods that perform the IR code generation 
