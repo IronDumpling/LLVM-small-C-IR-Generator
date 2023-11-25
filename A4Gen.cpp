@@ -112,18 +112,12 @@ int main(int argc, const char *argv[]) {
     // Lab 4. 
     // Generate the code in file with extension .bc
     IRGen IR(fileName+".bc");
-
-    std::cout << "IR created" << std::endl;
     
     IR.visitProgramNode(prg);
-
-    std::cout << "IR visited prg node" << std::endl;
     
     std::unique_ptr<llvm::Module> m = IR.getModule();
     auto TargetTriple = llvm::sys::getDefaultTargetTriple();
     m->setTargetTriple(TargetTriple);
-
-    std::cout << "IR set target triple" << std::endl;
     
     std::error_code EC;
     if (!llvm::verifyModule(*m, &llvm::errs())) {

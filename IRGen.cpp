@@ -181,7 +181,7 @@ IRGen::visitFunctionDeclNode (FunctionDeclNode* func) {
     );
     this->Builder->SetInsertPoint(entry);
 
-    cout << "declare fuction " << name << "\n";
+    // cout << "declare fuction " << name << "\n";
 
     // declare parameters
     for(int i = 0; i < func->getNumParameters(); i++){
@@ -204,7 +204,7 @@ IRGen::visitFunctionDeclNode (FunctionDeclNode* func) {
     if (func->getBody())
         func->getBody()->visit(this);
 
-    cout << "finish visiting the scope of " << name << "\n";
+    // cout << "finish visiting the scope of " << name << "\n";
 
     assert(this->Builder->GetInsertBlock() != nullptr);
 
@@ -243,7 +243,7 @@ IRGen::visitArrayDeclNode (ArrayDeclNode* array) {
             type, nullptr, name
         );
         this->findTable(array->getIdent())->setLLVMValue(name, var);
-        cout << array->getLine() << ": local array: " << name << "\n";
+        // cout << array->getLine() << ": local array: " << name << "\n";
     }    
 
     ASTVisitorBase::visitArrayDeclNode(array);
@@ -274,7 +274,7 @@ IRGen::visitScalarDeclNode (ScalarDeclNode* scalar) {
             type, nullptr, name
         );
         this->findTable(scalar->getIdent())->setLLVMValue(name, var);
-        cout << scalar->getLine() << ": local scalar: " << name << "\n";
+        // cout << scalar->getLine() << ": local scalar: " << name << "\n";
     }
     
     ASTVisitorBase::visitScalarDeclNode(scalar);
@@ -306,9 +306,9 @@ IRGen::visitUnaryExprNode(UnaryExprNode* unary) {
 
 void 
 IRGen::visitBinaryExprNode(BinaryExprNode* bin) {
-    cout << bin->getLine() << ": left operand\n";
+    // cout << bin->getLine() << ": left operand\n";
     bin->getLeft()->visit(this);
-    cout << bin->getLine() << ": right operand\n";
+    // cout << bin->getLine() << ": right operand\n";
     bin->getRight()->visit(this);
 
     string op = ExprNode::codeToStr(bin->getOpcode());
@@ -388,7 +388,7 @@ IRGen::visitCallExprNode (CallExprNode* call) {
 
     call->setLLVMValue(callInst);
 
-    cout << call->getLine() << ": function call " << name << "\n";
+    // cout << call->getLine() << ": function call " << name << "\n";
 
     ASTVisitorBase::visitCallExprNode(call);
 }

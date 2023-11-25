@@ -44,7 +44,7 @@ def test_executable(file_name):
         print(f"Test {file_name}: FAIL - A4Gen returned an error.")
         return
 
-    run_command(f"./A4Gen-reference {ref_input_file}")
+    run_command(f"/cad2/ece467f/public/A4Gen-reference {ref_input_file}")
 
     # Disassemble both output files
     run_command(f"{llvm_dis} {output_file}")
